@@ -1,0 +1,140 @@
+From a78c82a8db0ceafb5f6f536ae7587bf2edbddff1 Mon Sep 17 00:00:00 2001
+From: Maksim Shabunin <maksim.shabunin@gmail.com>
+Date: Tue, 11 Oct 2022 12:07:03 +0300
+Subject: [PATCH] Upgrade fakeroot
+
+---
+ .../0001-fix-prototype-generation.patch       | 61 +++++++++++++++++++
+ package/fakeroot/0001-skip-doc-subdirs.patch  | 14 -----
+ package/fakeroot/fakeroot.hash                |  4 +-
+ package/fakeroot/fakeroot.mk                  |  6 +-
+ 4 files changed, 65 insertions(+), 20 deletions(-)
+ create mode 100644 package/fakeroot/0001-fix-prototype-generation.patch
+ delete mode 100644 package/fakeroot/0001-skip-doc-subdirs.patch
+
+diff --git a/package/fakeroot/0001-fix-prototype-generation.patch b/package/fakeroot/0001-fix-prototype-generation.patch
+new file mode 100644
+index 0000000000..960bad2129
+--- /dev/null
++++ b/package/fakeroot/0001-fix-prototype-generation.patch
+@@ -0,0 +1,61 @@
++Subject: Fix prototype generation for openat
++Author: Christoph Biedl <debian.axhn@manchmal.in-ulm.de>
++Date: 2021-12-30
++Bug-Debian: https://bugs.debian.org/995393
++Forwarded: Yes (implicitely)
++
++    As jrtc27 pointed out in IRC, ppc64el is more strict than other
++    architectures when it comes to va_arg handling:
++
++        it's that ppc64le uses the elfv2 abi, and for variadic calls you
++        must reserve space for a parameter save area
++
++    So enhance wrapawk to create a proper prototype and argument
++    handling although it's specific to the openat call. Also add the
++    missing documentation for the sixth column to wrapfunc.inp.
++
++Signed-off-by: Joel Stanley <joel@jms.id.au>
++
++--- a/wrapawk
+++++ b/wrapawk
++@@ -37,7 +37,25 @@
++   argtype=$3;
++   argname=$4;
++   MACRO=$5;
++-  if(MACRO){
+++  openat_extra=$6;
+++  if(openat_extra){
+++    print "  {(void(*))&next_" name ", \"" name "\"},"  > structfile;
+++    print "extern " ret " (*next_" name ")" openat_extra ";" > headerfile;
+++    print ret " (*next_" name ")" openat_extra "=tmp_" name ";"> deffile;
+++
+++    print ret " tmp_" name,  openat_extra "{"           > tmpffile;
+++    print "  mode_t mode = 0;"                          > tmpffile;
+++    print "  if (flags & O_CREAT) {"                    > tmpffile;
+++    print "    va_list args;"                           > tmpffile;
+++    print "    va_start(args, flags);"                  > tmpffile;
+++    print "    mode = va_arg(args, int);"               > tmpffile;
+++    print "    va_end(args);"                           > tmpffile;
+++    print "  }"                                         > tmpffile;
+++    print "  load_library_symbols();"                   > tmpffile;
+++    print "  return  next_" name,  argname ";"          > tmpffile;
+++    print "}"                                           > tmpffile;
+++    print ""                                            > tmpffile;
+++  } else if(MACRO){
++     print "  {(void(*))&NEXT_" MACRO "_NOARG, " name "_QUOTE},"  > structfile;
++     print "extern " ret " (*NEXT_" MACRO "_NOARG)" argtype ";" > headerfile;
++     print ret " (*NEXT_" MACRO "_NOARG)" argtype "=TMP_" MACRO ";"> deffile;
++--- a/wrapfunc.inp
+++++ b/wrapfunc.inp
++@@ -9,8 +9,10 @@
++ /**/									  */
++ /* each line of this file lists 4 fields, seperated by a ";".		  */
++ /* The first field is the name of the wrapped function, then it's return  */
++-/* value. After that come the function arguments with types, and the last */
+++/* value. After that come the function arguments with types, and the fifth */
++ /* field contains the function arguments without types.                   */
+++/* A sixth field is a special needed when wrapping the openat syscall.    */
+++/* Otherwise it's like the third (function arguments with types).         */
++ /**/
++ 
++ /* __*xstat are used on glibc systems instead of just *xstat. */
+diff --git a/package/fakeroot/0001-skip-doc-subdirs.patch b/package/fakeroot/0001-skip-doc-subdirs.patch
+deleted file mode 100644
+index 91663fb64d..0000000000
+--- a/package/fakeroot/0001-skip-doc-subdirs.patch
++++ /dev/null
+@@ -1,14 +0,0 @@
+-For some reason, version 1.25 and up is missing all localized doc,
+-and thus fails on the install stage.
+-
+-Skip the directories.
+-
+-Signed-off-by: Norbert Lange <nolange79@gmail.com>
+---- fakeroot-1.25.1.org/doc/Makefile.am	2020-09-22 23:52:20.000000000 +0200
+-+++ fakeroot-1.25.1/doc/Makefile.am	2020-09-24 11:05:27.611298673 +0200
+-@@ -1,5 +1,4 @@
+- AUTOMAKE_OPTIONS=foreign
+--SUBDIRS = de es fr nl pt sv
+-
+- man_MANS = faked.1 fakeroot.1
+-
+diff --git a/package/fakeroot/fakeroot.hash b/package/fakeroot/fakeroot.hash
+index 1a23d9e8d8..3d53eeb097 100644
+--- a/package/fakeroot/fakeroot.hash
++++ b/package/fakeroot/fakeroot.hash
+@@ -1,4 +1,4 @@
+-# From http://deb.debian.org/debian/pool/main/f/fakeroot/fakeroot_1.25.3-1.dsc
+-sha256  8e903683357f7f5bcc31b879fd743391ad47691d4be33d24a76be3b6c21e956c  fakeroot_1.25.3.orig.tar.gz
++# From http://deb.debian.org/debian/pool/main/f/fakeroot/fakeroot_1.26-1.dsc
++sha256  480a578ffdc5592e73df4c086950d321b4adc78dbdaec56c82e4fe1fb68de8e9  fakeroot_1.26.orig.tar.gz
+ # License files, locally calculated
+ sha256  fc82ca8b6fdb18d4e3e85cfd8ab58d1bcd3f1b29abe782895abd91d64763f8e7  COPYING
+diff --git a/package/fakeroot/fakeroot.mk b/package/fakeroot/fakeroot.mk
+index 957f0a53b7..3fadf1c0f0 100644
+--- a/package/fakeroot/fakeroot.mk
++++ b/package/fakeroot/fakeroot.mk
+@@ -4,9 +4,9 @@
+ #
+ ################################################################################
+ 
+-FAKEROOT_VERSION = 1.25.3
++FAKEROOT_VERSION = 1.26
+ FAKEROOT_SOURCE = fakeroot_$(FAKEROOT_VERSION).orig.tar.gz
+-FAKEROOT_SITE = https://snapshot.debian.org/archive/debian/20201008T205817Z/pool/main/f/fakeroot
++FAKEROOT_SITE = https://snapshot.debian.org/archive/debian/20210907T092512Z/pool/main/f/fakeroot
+ 
+ HOST_FAKEROOT_DEPENDENCIES = host-acl
+ # Force capabilities detection off
+@@ -15,8 +15,6 @@ HOST_FAKEROOT_DEPENDENCIES = host-acl
+ HOST_FAKEROOT_CONF_ENV = \
+ 	ac_cv_header_sys_capability_h=no \
+ 	ac_cv_func_capset=no
+-# upstream does not ship with configure script anymore
+-HOST_FAKEROOT_AUTORECONF = YES
+ FAKEROOT_LICENSE = GPL-3.0+
+ FAKEROOT_LICENSE_FILES = COPYING
+ 
+-- 
+2.34.1
+
